@@ -29,18 +29,109 @@ function assertSafeUrl(rawUrl, allowPrivate = false) {
   return u;
 }
 
+/**
+ * ---------------------------------------------------------------------------
+ * ERROR / SUCCESS ACCOUNTING — READ BEFORE CHANGING
+ * ---------------------------------------------------------------------------
+ * Autocannon's raw result object has categories that OVERLAP, and blindly
+ * summing them (as the old code did: errors + timeouts + non2xx) double
+ * counts failures. Here is how the categories actually relate:
+ *
+ *   result.requests.total  -> requests that completed and received an HTTP
+ *                             response (any status code: 2xx/3xx/4xx/5xx).
+ *                             Connection failures that never got a response
+ *                             are NOT included in this number.
+ *   result.non2xx          -> subset of requests.total: responses received
+ *                             with a status code outside the 2xx range.
+ *   result.errors          -> connection/socket-level failures (e.g. ECONNRESET,
+ *                             ECONNREFUSED, socket hang up) where no HTTP
+ *                             response was ever received. Autocannon counts a
+ *                             timeout AS an error, so...
+ *   result.timeouts        -> ...is a SUBSET of result.errors, not an
+ *                             additional/separate bucket. Adding it to
+ *                             result.errors again double-counts it.
+ *
+ * So the correct picture is:
+ *
+ *   totalAttempted   = requests.total + errors   (completed responses + connections
+ *                                                  that never got a response)
+ *   successful       = requests.total - non2xx   (2xx responses only)
+ *   httpFailures     = non2xx                    (got a response, bad status)
+ *   connectionErrors = errors - timeouts         (socket/connection errors that were NOT a timeout)
+ *   timeouts         = timeouts                  (already reflected inside `errors`, shown separately for visibility)
+ *   unsuccessful     = non2xx + errors           (httpFailures + ALL connection-level failures, timeouts included once)
+ *   errorRatePct     = unsuccessful / totalAttempted * 100
+ *
+ * No category is counted twice: `errors` already contains `timeouts`, so
+ * `timeouts` is never added into a total a second time.
+ * ---------------------------------------------------------------------------
+ */
+function getStatusCodeBuckets(result) {
+  const buckets = { '1xx': 0, '2xx': 0, '3xx': 0, '4xx': 0, '5xx': 0 };
+  const stats = result.statusCodeStats;
+  if (stats && typeof stats === 'object') {
+    for (const codeStr of Object.keys(stats)) {
+      const code = parseInt(codeStr, 10);
+      if (Number.isNaN(code)) continue;
+      const entry = stats[codeStr];
+      const count = typeof entry === 'object' && entry !== null ? (entry.count || 0) : (entry || 0);
+      if (code >= 100 && code < 200) buckets['1xx'] += count;
+      else if (code >= 200 && code < 300) buckets['2xx'] += count;
+      else if (code >= 300 && code < 400) buckets['3xx'] += count;
+      else if (code >= 400 && code < 500) buckets['4xx'] += count;
+      else if (code >= 500 && code < 600) buckets['5xx'] += count;
+    }
+  }
+  const bucketSum = buckets['1xx'] + buckets['2xx'] + buckets['3xx'] + buckets['4xx'] + buckets['5xx'];
+  if (bucketSum === 0) {
+    // This autocannon build didn't populate statusCodeStats — fall back to the
+    // top-level fields it exposes instead (never invent numbers).
+    buckets['1xx'] = result['1xx'] || 0;
+    buckets['2xx'] = result['2xx'] || 0;
+    buckets['3xx'] = result['3xx'] || 0;
+    buckets['4xx'] = result['4xx'] || 0;
+    buckets['5xx'] = result['5xx'] || 0;
+  }
+  return buckets;
+}
+
 function summarize(result) {
-  const total = result.requests.total || 0;
-  const errorCount = (result.errors || 0) + (result.timeouts || 0) + (result.non2xx || 0);
-  const errorRatePct = total ? +((errorCount / total) * 100).toFixed(2) : 0;
+  const requestsCompleted = result.requests.total || 0; // got an HTTP response (any status)
+  const errorsRaw = result.errors || 0;                 // connection-level failures; INCLUDES timeouts
+  const timeouts = result.timeouts || 0;                // subset of errorsRaw
+  const connectionOnlyErrors = Math.max(0, errorsRaw - timeouts);
+
+  const buckets = getStatusCodeBuckets(result);
+  let successful = buckets['2xx'];
+  let non2xx = buckets['1xx'] + buckets['3xx'] + buckets['4xx'] + buckets['5xx'];
+  if (successful === 0 && non2xx === 0 && requestsCompleted > 0) {
+    // Neither statusCodeStats nor the 1xx/2xx/3xx/4xx/5xx fields were populated
+    // by this autocannon version — derive from the one field we know we have.
+    non2xx = result.non2xx || 0;
+    successful = Math.max(0, requestsCompleted - non2xx);
+  }
+
+  const totalAttempted = requestsCompleted + errorsRaw;
+  const unsuccessful = non2xx + errorsRaw; // errorsRaw already contains timeouts once
+  const errorRatePct = totalAttempted ? +((unsuccessful / totalAttempted) * 100).toFixed(2) : 0;
+  const successRatePct = totalAttempted ? +((successful / totalAttempted) * 100).toFixed(2) : 0;
+
+  const durationS = result.duration || 0;
+  const successfulPerSec = durationS ? Math.round(successful / durationS) : 0;
 
   return {
-    durationS: result.duration,
+    durationS,
     connections: result.connections,
     requests: {
-      total,
-      perSecondAvg: Math.round(result.requests.average || 0),
+      total: totalAttempted, // successful + HTTP failures + connection errors/timeouts
+      completed: requestsCompleted, // requests that got any HTTP response
+      perSecondAvg: Math.round(result.requests.average || 0), // throughput of COMPLETED requests, not just successful
       perSecondMax: Math.round(result.requests.max || 0),
+    },
+    successful: {
+      count: successful,
+      ratePct: successRatePct,
+      perSecondAvg: successfulPerSec,
     },
     latencyMs: {
       average: Math.round(result.latency.average || 0),
@@ -51,12 +142,15 @@ function summarize(result) {
     },
     throughputBytesPerSec: Math.round(result.throughput.average || 0),
     errors: {
-      count: errorCount,
+      // "count"/"ratePct" here are the PRIMARY failure metric: any request
+      // that did not end in a 2xx response, whether or not it got a response.
+      count: unsuccessful,
       ratePct: errorRatePct,
-      timeouts: result.timeouts || 0,
-      non2xx: result.non2xx || 0,
+      httpNon2xx: non2xx,
+      connectionErrors: connectionOnlyErrors,
+      timeouts,
     },
-    statusCodes: result.statusCodeStats || {},
+    statusCodes: buckets,
   };
 }
 
@@ -123,14 +217,27 @@ module.exports = async function handler(req, res) {
 
     const summary = summarize(result);
 
-    // Simple rule-based insights (no external AI)
+    // Rule-based insights (no external AI). Accuracy over vibes: never call
+    // raw throughput "sustained" or "stable" if most of it was failures.
     const insights = [];
+
     if (summary.errors.ratePct > 5) {
-      insights.push(`High error rate (${summary.errors.ratePct}%). Check server logs and database connections.`);
+      insights.push(
+        `High failure rate detected (${summary.errors.ratePct}% of ${summary.requests.total.toLocaleString()} attempted requests). ` +
+        `Although the test generated ~${summary.requests.perSecondAvg.toLocaleString()} requests/sec, only ` +
+        `${summary.successful.count.toLocaleString()} requests actually succeeded (~${summary.successful.perSecondAvg.toLocaleString()} successful/sec). ` +
+        `This throughput should not be interpreted as stable application capacity.`
+      );
+      if (summary.errors.httpNon2xx > 0) {
+        insights.push(`${summary.errors.httpNon2xx.toLocaleString()} requests received a non-2xx HTTP response.`);
+      }
+      if (summary.errors.connectionErrors > 0 || summary.errors.timeouts > 0) {
+        insights.push(`${summary.errors.connectionErrors.toLocaleString()} connection errors and ${summary.errors.timeouts.toLocaleString()} timeouts occurred — the target may be rejecting or dropping connections under this load.`);
+      }
     } else if (summary.errors.ratePct > 0) {
-      insights.push(`Low error rate (${summary.errors.ratePct}%) observed.`);
+      insights.push(`Stable throughput of approximately ${summary.successful.perSecondAvg.toLocaleString()} successful requests/sec at ${conn} concurrent HTTP connections (low error rate of ${summary.errors.ratePct}%).`);
     } else {
-      insights.push('No errors recorded at this load level.');
+      insights.push(`Stable throughput of approximately ${summary.successful.perSecondAvg.toLocaleString()} successful requests/sec at ${conn} concurrent HTTP connections. No errors recorded.`);
     }
 
     if (summary.latencyMs.p90 > 1000) {
@@ -141,14 +248,11 @@ module.exports = async function handler(req, res) {
       insights.push(`Latency looks healthy (avg ${summary.latencyMs.average}ms, p90 ${summary.latencyMs.p90}ms).`);
     }
 
-    if (summary.requests.perSecondAvg > 0) {
-      insights.push(`Sustained ~${summary.requests.perSecondAvg} requests/sec with ${conn} concurrent connections.`);
-    }
-
     return res.status(200).json({
       success: true,
       real: true,
       limitsApplied: { maxConnections: MAX_CONNECTIONS, maxDuration: MAX_DURATION },
+      vercelNote: `This tool runs inside a single Vercel serverless function (max ${MAX_DURATION}s test duration, ${MAX_CONNECTIONS} connections per run here). It measures HTTP-level load from one function instance, not your server's true maximum capacity under unlimited concurrency.`,
       config: { url: u.href, connections: conn, duration: dur },
       result: summary,
       insights,
