@@ -146,3 +146,89 @@ async function startCapacity() {
     btn.disabled = false;
   }
 }
+// -----------------------------------------------------------------------
+// Paste this whole block onto the end of public/app.js
+// Reuses the existing val(), checked(), and api() helpers already defined
+// at the top of app.js — no changes needed there.
+// -----------------------------------------------------------------------
+
+async function startInspect() {
+  const btn = document.getElementById('inspectBtn');
+  const panel = document.getElementById('inspectPanel');
+  const statusEl = document.getElementById('inspectStatus');
+  const resultPanel = document.getElementById('inspectResultPanel');
+
+  resultPanel.style.display = 'none';
+  panel.style.display = '';
+  statusEl.textContent = 'Fetching page…';
+  btn.disabled = true;
+
+  try {
+    const data = await api('/api/inspect', {
+      url: val('url'),
+      allowPrivate: checked('allowPrivate'),
+    });
+
+    if (!data.ok) {
+      throw new Error(data.error || 'Fetch failed');
+    }
+
+    statusEl.textContent = 'Done — page fetched and parsed';
+    renderInspectResult(data.result);
+    resultPanel.style.display = '';
+  } catch (e) {
+    statusEl.textContent = 'Failed: ' + e.message;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function renderInspectResult(r) {
+  document.getElementById('inspectTable').innerHTML = `
+    <tr><th>Field</th><th>Value</th></tr>
+    <tr><td>Final URL</td><td>${escapeHtml(r.finalUrl)}</td></tr>
+    <tr><td>Status</td><td>${r.status}</td></tr>
+    <tr><td>Load time</td><td>${r.loadTimeMs} ms</td></tr>
+    <tr><td>Title</td><td>${escapeHtml(r.title || '—')}</td></tr>
+    <tr><td>Description</td><td>${escapeHtml(r.description || '—')}</td></tr>
+    <tr><td>Headings found</td><td>${r.headings.length ? r.headings.map(escapeHtml).join('; ') : '—'}</td></tr>
+    <tr><td>Links found</td><td>${r.linkCount.toLocaleString()}</td></tr>
+    <tr><td>Images</td><td>${r.imageCount.toLocaleString()}</td></tr>
+  `;
+
+  const formsBlock = document.getElementById('inspectFormsBlock');
+  if (r.forms.length) {
+    formsBlock.innerHTML = '<strong>Forms found</strong><ul>' +
+      r.forms.map((f, i) => {
+        const fields = f.inputs.map(inp => `${escapeHtml(inp.name || '(unnamed)')} [${escapeHtml(inp.type || '?')}]`).join(', ');
+        return `<li>Form ${i + 1} — ${f.method} ${escapeHtml(f.action || '(no action set)')}<br><span class="mono small">${fields || 'no fields detected'}</span></li>`;
+      }).join('') + '</ul>';
+  } else {
+    formsBlock.innerHTML = '<strong>Forms found</strong><p class="mono small">None detected on this page.</p>';
+  }
+
+  const linksBlock = document.getElementById('inspectLinksBlock');
+  if (r.socials.length) {
+    linksBlock.innerHTML = '<strong>Social links</strong><ul>' +
+      r.socials.map(l => `<li><span class="mono small">${escapeHtml(l)}</span></li>`).join('') + '</ul>';
+  } else {
+    linksBlock.innerHTML = '<strong>Social links</strong><p class="mono small">None detected.</p>';
+  }
+
+  const contactBlock = document.getElementById('inspectContactBlock');
+  const emails = r.contact.emails.length ? r.contact.emails.map(escapeHtml).join(', ') : '—';
+  const phones = r.contact.phones.length ? r.contact.phones.map(escapeHtml).join(', ') : '—';
+  contactBlock.innerHTML = `
+    <strong>Contact info found on page</strong>
+    <p class="mono small">Emails: ${emails}</p>
+    <p class="mono small">Phones: ${phones}</p>
+  `;
+}
+
+function escapeHtml(str) {
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
