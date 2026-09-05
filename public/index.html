@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>CheckMe — Real Load Testing</title>
+  <meta name="description" content="Real HTTP load testing tool. Sends actual traffic and measures real results." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <header>
+    <div class="brand">Check<b>Me</b> <span class="real-badge">REAL TRAFFIC</span></div>
+    <p class="warn">
+      Only test websites you own or have explicit permission to load-test.
+      This tool sends real HTTP requests. Keep duration and connections low on Vercel.
+    </p>
+  </header>
+
+  <main>
+    <!-- URL + options -->
+    <section class="card">
+      <h2>Target</h2>
+      <div class="row">
+        <input id="url" class="input" placeholder="https://your-site.com" value="https://example.com" />
+      </div>
+      <label class="checkbox-row">
+        <input type="checkbox" id="allowPrivate" /> Allow localhost / private addresses (dev only)
+      </label>
+    </section>
+
+    <!-- Single test -->
+    <section class="card">
+      <h2>Run a real load test</h2>
+      <p class="hint">Uses real concurrent HTTP connections (autocannon). Max 12 seconds / 100 connections on Vercel.</p>
+      <div class="grid3">
+        <div>
+          <label>Connections</label>
+          <input id="connections" class="input" type="number" value="20" min="1" max="100" />
+        </div>
+        <div>
+          <label>Duration (seconds)</label>
+          <input id="duration" class="input" type="number" value="8" min="3" max="12" />
+        </div>
+        <div>
+          <label>Pipelining</label>
+          <input id="pipelining" class="input" type="number" value="1" min="1" max="10" />
+        </div>
+      </div>
+      <button class="btn btn-primary" id="runBtn" onclick="startTest()">▸ Run real test</button>
+
+      <div id="runPanel" style="display:none;">
+        <div class="progress-bar"><div id="progressFill"></div></div>
+        <div class="mono small" id="progressText">Sending real traffic…</div>
+      </div>
+
+      <div id="resultPanel" style="display:none;">
+        <h3>Measured results (real)</h3>
+        <table id="resultTable"></table>
+        <div id="insights" class="insights"></div>
+      </div>
+    </section>
+
+    <!-- Capacity ramp -->
+    <section class="card">
+      <h2>Find breaking point (capacity ramp)</h2>
+      <p class="hint">Runs short real tests at increasing concurrency until error rate or latency crosses your threshold.</p>
+      <div class="grid3">
+        <div>
+          <label>Start connections</label>
+          <input id="startConnections" class="input" type="number" value="10" />
+        </div>
+        <div>
+          <label>Max connections</label>
+          <input id="maxConnections" class="input" type="number" value="60" />
+        </div>
+        <div>
+          <label>Seconds per round</label>
+          <input id="stepSeconds" class="input" type="number" value="5" max="6" />
+        </div>
+      </div>
+      <div class="grid3">
+        <div>
+          <label>Error threshold %</label>
+          <input id="errorThresholdPct" class="input" type="number" value="5" />
+        </div>
+        <div>
+          <label>p90 latency threshold (ms)</label>
+          <input id="latencyThresholdMs" class="input" type="number" value="1200" />
+        </div>
+        <div></div>
+      </div>
+      <button class="btn btn-primary" id="capBtn" onclick="startCapacity()">▸ Find capacity</button>
+      <table id="capacityTable" style="margin-top:14px;"></table>
+      <div id="capacityResult" class="mono small"></div>
+    </section>
+
+    <p class="footer-note">
+      Powered by real HTTP load generation. Results are measured from actual responses — nothing is simulated.
+      Vercel serverless limits duration and concurrency for reliability.
+    </p>
+  </main>
+
+  <script src="/app.js"></script>
+</body>
+</html>
