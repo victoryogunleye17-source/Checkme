@@ -5,10 +5,22 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>CheckMe — Real Load Testing</title>
   <meta name="description" content="Real HTTP load testing tool. Sends actual traffic and measures real results." />
+  
+  <!-- PWA -->
+  <link rel="manifest" href="/manifest.json" />
+  <meta name="theme-color" content="#42E8C7" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="CheckMe" />
+  <link rel="apple-touch-icon" href="/icon-192.svg" />
+
+
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/styles.css" />
 </head>
+
 <body>
   <header>
     <div class="brand">Check<b>Me</b> <span class="real-badge">REAL TRAFFIC</span></div>
@@ -103,5 +115,16 @@
   </main>
 
   <script src="/app.js"></script>
+  <script>
+    // Register Service Worker for PWA
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('/sw.js')
+          .then((reg) => console.log('Service Worker registered', reg.scope))
+          .catch((err) => console.log('Service Worker registration failed', err));
+      });
+    }
+  </script>
 </body>
 </html>
+
