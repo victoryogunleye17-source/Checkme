@@ -208,6 +208,39 @@ th {
   margin-bottom: 4px;
 }
 
+.status-badge {
+  display: inline-block;
+  padding: 3px 9px;
+  border-radius: 20px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+}
+
+.status-badge.stable {
+  background: rgba(66, 232, 199, 0.15);
+  color: var(--teal);
+  border: 1px solid rgba(66, 232, 199, 0.4);
+}
+
+.status-badge.breaking {
+  background: rgba(255, 107, 107, 0.15);
+  color: var(--coral);
+  border: 1px solid rgba(255, 107, 107, 0.4);
+}
+
+.vercel-note {
+  margin-top: 10px;
+  padding: 10px 12px;
+  background: rgba(255, 180, 84, 0.08);
+  border: 1px solid rgba(255, 180, 84, 0.25);
+  border-radius: 8px;
+  font-size: 12px;
+  color: var(--text-dim);
+  line-height: 1.5;
+}
+
 .footer-note {
   font-size: 12px;
   color: var(--text-dim);

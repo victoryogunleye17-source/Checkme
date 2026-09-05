@@ -71,6 +71,7 @@
         <h3>Measured results (real)</h3>
         <table id="resultTable"></table>
         <div id="insights" class="insights"></div>
+        <div id="resultVercelNote" class="vercel-note" style="display:none;"></div>
       </div>
     </section>
 
@@ -101,11 +102,15 @@
           <label>p90 latency threshold (ms)</label>
           <input id="latencyThresholdMs" class="input" type="number" value="1200" />
         </div>
-        <div></div>
+        <div>
+          <label>Step / increment</label>
+          <input id="connectionStep" class="input" type="number" value="10" min="1" />
+        </div>
       </div>
       <button class="btn btn-primary" id="capBtn" onclick="startCapacity()">▸ Find capacity</button>
       <table id="capacityTable" style="margin-top:14px;"></table>
       <div id="capacityResult" class="mono small"></div>
+      <div id="capacityVercelNote" class="vercel-note" style="display:none;"></div>
     </section>
 
     <p class="footer-note">
