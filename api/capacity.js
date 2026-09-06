@@ -1,5 +1,6 @@
 const autocannon = require('autocannon');
 const crypto = require('crypto');
+const { classifyFailure } = require('./_lib/classify');
 
 const MAX_CONNECTIONS = 80;
 const MAX_ROUND_SECONDS = 6;
@@ -101,7 +102,7 @@ function summarize(result, errorThresholdPct, latencyThresholdMs) {
     breachReason = 'p90 latency exceeded threshold';
   }
 
-  return {
+  const roundSummary = {
     connections: result.connections,
     totalRequests: totalAttempted,
     successfulRequests: successful,
@@ -112,9 +113,23 @@ function summarize(result, errorThresholdPct, latencyThresholdMs) {
     latencyP90,
     latencyAvg: Math.round(result.latency.average || 0),
     errorRatePct,
+    statusCodes: buckets,
     status,
     breachReason,
   };
+
+  // Reuse the same classifier test.js uses, adapted to this round's flatter
+  // shape, so a BREAKING round tells you WHY it's breaking (rate limiter vs
+  // real outage) instead of just that a threshold was crossed.
+  if (errorRatePct > 5) {
+    roundSummary.classification = classifyFailure({
+      errors: { ratePct: errorRatePct, connectionErrors: connectionOnlyErrors, timeouts },
+      latencyMs: { p90: latencyP90 },
+      statusCodes: buckets,
+    });
+  }
+
+  return roundSummary;
 }
 
 function runOne(url, connections, duration) {

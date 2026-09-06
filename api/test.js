@@ -1,5 +1,6 @@
 const autocannon = require('autocannon');
 const crypto = require('crypto');
+const { classifyFailure } = require('./_lib/classify');
 
 // Strict limits so the function can finish on Vercel
 const MAX_CONNECTIONS = 100;
@@ -248,6 +249,11 @@ module.exports = async function handler(req, res) {
       insights.push(`Latency looks healthy (avg ${summary.latencyMs.average}ms, p90 ${summary.latencyMs.p90}ms).`);
     }
 
+    const classification = classifyFailure(summary);
+    if (classification.label !== 'HEALTHY') {
+      insights.push(classification.explanation);
+    }
+
     return res.status(200).json({
       success: true,
       real: true,
@@ -255,6 +261,7 @@ module.exports = async function handler(req, res) {
       vercelNote: `This tool runs inside a single Vercel serverless function (max ${MAX_DURATION}s test duration, ${MAX_CONNECTIONS} connections per run here). It measures HTTP-level load from one function instance, not your server's true maximum capacity under unlimited concurrency.`,
       config: { url: u.href, connections: conn, duration: dur },
       result: summary,
+      classification,
       insights,
     });
   } catch (err) {
