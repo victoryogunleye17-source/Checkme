@@ -70,6 +70,8 @@
       <div id="resultPanel" style="display:none;">
         <h3>Measured results (real)</h3>
         <table id="resultTable"></table>
+        <div id="statusChart" class="status-chart"></div>
+        <div id="classificationBadge"></div>
         <div id="insights" class="insights"></div>
         <div id="resultVercelNote" class="vercel-note" style="display:none;"></div>
       </div>
@@ -130,6 +132,38 @@
         <div id="inspectFormsBlock" style="margin-top:14px;"></div>
         <div id="inspectLinksBlock" style="margin-top:14px;"></div>
         <div id="inspectContactBlock" style="margin-top:14px;"></div>
+      </div>
+    </section>
+
+    <!-- Redirect chain viewer -->
+    <section class="card">
+      <h2>Redirect chain</h2>
+      <p class="hint">Follows the target URL hop by hop, showing every redirect until it lands (or fails). Useful for short links like wa.me, bit.ly, etc.</p>
+      <button class="btn btn-primary" id="redirectBtn" onclick="startRedirectCheck()">▸ Trace redirects</button>
+
+      <div id="redirectPanel" style="display:none;">
+        <div class="mono small" id="redirectStatus">Tracing…</div>
+      </div>
+
+      <div id="redirectResultPanel" style="display:none;">
+        <h3>Redirect chain (real)</h3>
+        <div id="redirectHops"></div>
+      </div>
+    </section>
+
+    <!-- Scheduled monitoring history -->
+    <section class="card">
+      <h2>Monitoring history</h2>
+      <p class="hint">Shows results from scheduled background checks (runs automatically every few hours via Vercel Cron — see README for setup). Only URLs listed in your WATCH_URLS env var are tracked.</p>
+      <button class="btn btn-primary" id="historyBtn" onclick="loadHistory()">▸ View history for this URL</button>
+
+      <div id="historyPanel" style="display:none;">
+        <div class="mono small" id="historyStatus">Loading…</div>
+      </div>
+
+      <div id="historyResultPanel" style="display:none;">
+        <div id="historyChart" class="status-chart"></div>
+        <table id="historyTable" style="margin-top:12px;"></table>
       </div>
     </section>
 

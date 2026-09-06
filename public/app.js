@@ -50,7 +50,7 @@ async function startTest() {
     progressFill.style.width = '100%';
     progressText.textContent = 'Done — real results received';
 
-    renderResult(data.result, data.insights, data.vercelNote);
+    renderResult(data.result, data.insights, data.vercelNote, data.classification);
     resultPanel.style.display = '';
   } catch (e) {
     clearInterval(timer);
@@ -62,7 +62,7 @@ async function startTest() {
   }
 }
 
-function renderResult(r, insights, vercelNote) {
+function renderResult(r, insights, vercelNote, classification) {
   const sc = r.statusCodes || {};
   document.getElementById('resultTable').innerHTML = `
     <tr><th>Metric</th><th>Value</th></tr>
@@ -83,6 +83,9 @@ function renderResult(r, insights, vercelNote) {
     <tr><td>Status codes (1xx/2xx/3xx/4xx/5xx)</td><td>${sc['1xx']||0} / ${sc['2xx']||0} / ${sc['3xx']||0} / ${sc['4xx']||0} / ${sc['5xx']||0}</td></tr>
   `;
 
+  renderStatusChart(sc, 'statusChart');
+  renderClassificationBadge(classification, 'classificationBadge');
+
   const insightsEl = document.getElementById('insights');
   if (insights && insights.length) {
     insightsEl.innerHTML = '<strong>Insights</strong><ul>' +
@@ -94,6 +97,63 @@ function renderResult(r, insights, vercelNote) {
   const noteEl = document.getElementById('resultVercelNote');
   noteEl.textContent = vercelNote || '';
   noteEl.style.display = vercelNote ? '' : 'none';
+}
+
+// Simple CSS-bar status code chart — no chart library needed.
+function renderStatusChart(sc, containerId) {
+  const el = document.getElementById(containerId);
+  if (!el) return;
+
+  const buckets = [
+    { key: '1xx', color: '#6b7280' },
+    { key: '2xx', color: '#2dd4bf' },
+    { key: '3xx', color: '#60a5fa' },
+    { key: '4xx', color: '#f59e0b' },
+    { key: '5xx', color: '#ef4444' },
+  ];
+  const values = buckets.map(b => sc[b.key] || 0);
+  const max = Math.max(1, ...values);
+
+  el.innerHTML = '<div class="status-chart-title">Status code breakdown</div>' +
+    '<div class="status-chart-bars">' +
+    buckets.map((b, i) => {
+      const v = values[i];
+      const heightPct = Math.round((v / max) * 100);
+      return `
+        <div class="status-chart-col">
+          <div class="status-chart-value">${v.toLocaleString()}</div>
+          <div class="status-chart-track">
+            <div class="status-chart-fill" style="height:${heightPct}%;background:${b.color};"></div>
+          </div>
+          <div class="status-chart-label">${b.key}</div>
+        </div>`;
+    }).join('') +
+    '</div>';
+}
+
+// Small colored badge explaining "rate limited" vs "real outage" vs "healthy".
+function renderClassificationBadge(classification, containerId) {
+  const el = document.getElementById(containerId);
+  if (!el) return;
+  if (!classification || classification.label === 'HEALTHY') {
+    el.innerHTML = '';
+    return;
+  }
+
+  const styles = {
+    LIKELY_RATE_LIMITED: { color: '#f59e0b', label: 'Likely rate-limited (edge gatekeeper)' },
+    LIKELY_REAL_OUTAGE: { color: '#ef4444', label: 'Likely a real outage/struggling backend' },
+    MIXED: { color: '#a855f7', label: 'Mixed signals — rate limiting + real strain' },
+    UNCLEAR: { color: '#6b7280', label: 'Unclear pattern' },
+  };
+  const s = styles[classification.label] || styles.UNCLEAR;
+
+  el.innerHTML = `
+    <div class="classification-badge" style="border-color:${s.color};">
+      <span class="classification-dot" style="background:${s.color};"></span>
+      <strong style="color:${s.color};">${s.label}</strong>
+      <p class="mono small">${classification.explanation}</p>
+    </div>`;
 }
 
 async function startCapacity() {
@@ -132,6 +192,11 @@ async function startCapacity() {
           <td><span class="status-badge ${badgeClass}">${r.status}</span></td>
         </tr>`
       );
+      if (r.classification && r.classification.label !== 'HEALTHY') {
+        table.insertAdjacentHTML('beforeend',
+          `<tr><td colspan="7"><p class="mono small" style="opacity:0.85;">↳ At ${r.level} connections: ${r.classification.explanation}</p></td></tr>`
+        );
+      }
     });
 
     resultEl.textContent = data.message;
@@ -231,4 +296,118 @@ function escapeHtml(str) {
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;');
+}
+
+// -----------------------------------------------------------------------
+// Redirect chain viewer
+// -----------------------------------------------------------------------
+async function startRedirectCheck() {
+  const btn = document.getElementById('redirectBtn');
+  const panel = document.getElementById('redirectPanel');
+  const statusEl = document.getElementById('redirectStatus');
+  const resultPanel = document.getElementById('redirectResultPanel');
+  const hopsEl = document.getElementById('redirectHops');
+
+  resultPanel.style.display = 'none';
+  panel.style.display = '';
+  statusEl.textContent = 'Tracing redirect chain…';
+  btn.disabled = true;
+
+  try {
+    const data = await api('/api/redirects', {
+      url: val('url'),
+      allowPrivate: checked('allowPrivate'),
+    });
+
+    if (!data.ok) throw new Error(data.error || 'Redirect check failed');
+
+    statusEl.textContent = `Done — ${data.hopCount} redirect${data.hopCount === 1 ? '' : 's'} followed`;
+
+    hopsEl.innerHTML = data.hops.map(h => {
+      if (h.error) {
+        return `<div class="redirect-hop redirect-hop-error">
+          <strong>Hop ${h.hop}</strong> — ${escapeHtml(h.url)}<br>
+          <span class="mono small">Error: ${escapeHtml(h.error)}</span>
+        </div>`;
+      }
+      const arrow = h.isRedirect ? `→ redirects to ${escapeHtml(h.location || '(no location header)')}` : '(final destination)';
+      return `<div class="redirect-hop ${h.isRedirect ? '' : 'redirect-hop-final'}">
+        <strong>Hop ${h.hop}</strong> — ${escapeHtml(h.url)}<br>
+        <span class="mono small">Status ${h.status} · ${h.timeMs}ms ${arrow}</span>
+      </div>`;
+    }).join('');
+
+    if (data.truncated) {
+      hopsEl.insertAdjacentHTML('beforeend',
+        `<p class="mono small" style="opacity:0.8;">Stopped after ${data.hops.length} hops (safety limit) — this chain may continue further.</p>`);
+    }
+
+    resultPanel.style.display = '';
+  } catch (e) {
+    statusEl.textContent = 'Failed: ' + e.message;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+// -----------------------------------------------------------------------
+// Monitoring history (scheduled Vercel Cron checks stored in Vercel KV)
+// -----------------------------------------------------------------------
+async function loadHistory() {
+  const btn = document.getElementById('historyBtn');
+  const panel = document.getElementById('historyPanel');
+  const statusEl = document.getElementById('historyStatus');
+  const resultPanel = document.getElementById('historyResultPanel');
+  const chartEl = document.getElementById('historyChart');
+  const tableEl = document.getElementById('historyTable');
+
+  resultPanel.style.display = 'none';
+  panel.style.display = '';
+  statusEl.textContent = 'Loading history…';
+  btn.disabled = true;
+
+  try {
+    const data = await api('/api/history', { url: val('url') });
+    if (!data.ok) throw new Error(data.error || 'History lookup failed');
+
+    if (!data.history.length) {
+      statusEl.textContent = data.message || 'No history yet for this URL.';
+      btn.disabled = false;
+      return;
+    }
+
+    statusEl.textContent = `Done — ${data.history.length} recorded check${data.history.length === 1 ? '' : 's'}`;
+
+    // Simple latency sparkline using the same bar-chart CSS as status codes
+    const maxLatency = Math.max(1, ...data.history.map(h => h.latencyMs));
+    chartEl.innerHTML = '<div class="status-chart-title">Latency over time (most recent checks)</div>' +
+      '<div class="status-chart-bars">' +
+      data.history.slice(-12).map(h => {
+        const heightPct = Math.round((h.latencyMs / maxLatency) * 100);
+        const color = h.ok ? '#2dd4bf' : '#ef4444';
+        return `
+          <div class="status-chart-col">
+            <div class="status-chart-value">${h.latencyMs}ms</div>
+            <div class="status-chart-track">
+              <div class="status-chart-fill" style="height:${heightPct}%;background:${color};"></div>
+            </div>
+            <div class="status-chart-label">${new Date(h.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
+          </div>`;
+      }).join('') +
+      '</div>';
+
+    tableEl.innerHTML = '<tr><th>Time</th><th>Status</th><th>Latency</th></tr>' +
+      data.history.slice().reverse().slice(0, 20).map(h => `
+        <tr>
+          <td>${new Date(h.timestamp).toLocaleString()}</td>
+          <td>${h.ok ? '<span class="status-badge stable">UP</span>' : '<span class="status-badge breaking">DOWN</span>'} ${h.status || ''}</td>
+          <td>${h.latencyMs} ms</td>
+        </tr>`).join('');
+
+    resultPanel.style.display = '';
+  } catch (e) {
+    statusEl.textContent = 'Failed: ' + e.message;
+  } finally {
+    btn.disabled = false;
+  }
 }
