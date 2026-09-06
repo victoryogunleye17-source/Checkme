@@ -1,6 +1,6 @@
 const autocannon = require('autocannon');
 const crypto = require('crypto');
-const { classifyFailure } = require('./_lib/classify');
+const { classifyFailure } = require('../lib/classify');
 
 const MAX_CONNECTIONS = 80;
 const MAX_ROUND_SECONDS = 6;

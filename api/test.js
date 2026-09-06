@@ -1,6 +1,6 @@
 const autocannon = require('autocannon');
 const crypto = require('crypto');
-const { classifyFailure } = require('./_lib/classify');
+const { classifyFailure } = require('../lib/classify');
 
 // Strict limits so the function can finish on Vercel
 const MAX_CONNECTIONS = 100;
